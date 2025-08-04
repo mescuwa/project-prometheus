@@ -1,0 +1,74 @@
+# ===================================================================
+# Secrets & Environment Variables
+# NEVER commit these files.
+# ===================================================================
+.env
+.env.*
+*.env
+
+
+# ===================================================================
+# Project-Specific Data & Generated Files
+# ===================================================================
+
+# Ignore the generated LanceDB knowledge base
+data/knowledge_base.lancedb/
+
+# Ignore the copyrighted literature PDFs
+# The .gitkeep file ensures the directory itself can be tracked if empty
+data/literature/*
+!data/literature/.gitkeep
+
+# Ignore the temporary recording file, keep the final GIF
+demo.cast
+
+
+# ===================================================================
+# Python Bytecode, Caches, and Virtual Environments
+# Standard for all Python projects
+# ===================================================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+
+
+# ===================================================================
+# OS & Editor Specific Files
+# Prevents clutter from different development environments
+# ===================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/

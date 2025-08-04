@@ -1,0 +1,1 @@
+"""A collection of adapters for external scientific software.""" 

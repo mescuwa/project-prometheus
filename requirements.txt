@@ -1,0 +1,7 @@
+pydantic
+google-generativeai
+lancedb
+pyarrow
+rdkit-pypi
+mdanalysis
+tomli

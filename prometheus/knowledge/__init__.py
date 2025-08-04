@@ -1,0 +1,1 @@
+"""The Knowledge Synthesizer, the long-term memory of the AI scientist.""" 

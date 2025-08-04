@@ -1,0 +1,17 @@
+[vina_tool]
+# We are now using Smina, a Vina fork with improved features. Assuming it's on PATH.
+executable_path = "smina"
+
+[mission_parameters]
+pdb_id = "1M17"
+protein_file = "data/pdb/1M17.pdb"
+ligand_name = "Erlotinib"
+ligand_smiles = "COCCOc1cc2c(cc1OCCOC)ncnc2Nc1cccc(c1)C#C"
+
+[simulation_box]
+center_x = 21.857
+center_y = 0.260
+center_z = 52.761
+size_x = 20.0
+size_y = 20.0
+size_z = 20.0 
