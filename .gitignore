@@ -21,6 +21,7 @@ data/literature/*
 
 # Ignore the temporary recording file, keep the final GIF
 demo.cast
+demo2.cast
 
 
 # ===================================================================

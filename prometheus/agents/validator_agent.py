@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 class ValidatorAgent:
     """An agent that validates the results of an in-silico experiment."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: dict) -> None:
+        self.config = config
         logger.info("ValidatorAgent initialized.")
 
     def verify(
@@ -50,11 +51,11 @@ class ValidatorAgent:
             return "COMPUTATIONAL_ERROR", details
 
         # Check 3: Verify primary metric is present and numeric.
-        binding_affinity = experiment_result.get("binding_affinity_kcal_mol")
+        binding_affinity = experiment_result.get("average_binding_affinity")
         if binding_affinity is None:
             details = VerificationFailureDetails(
                 type="MISSING_PRIMARY_METRIC",
-                message="Experiment result is missing the 'binding_affinity_kcal_mol' key.",
+                message="Experiment result is missing the 'average_binding_affinity' key.",
             )
             return "COMPUTATIONAL_ERROR", details
 
@@ -62,7 +63,7 @@ class ValidatorAgent:
             details = VerificationFailureDetails(
                 type="INVALID_PRIMARY_METRIC",
                 message=(
-                    "Binding affinity is not a valid number. Got: "
+                    "Average binding affinity is not a valid number. Got: "
                     f"{binding_affinity}"
                 ),
             )

@@ -5,3 +5,9 @@ pyarrow
 rdkit-pypi
 mdanalysis
 tomli
+pandas
+cairosvg
+numpy
+openai
+dotenv
+sentence-transformers

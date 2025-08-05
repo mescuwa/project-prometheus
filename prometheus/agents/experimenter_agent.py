@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 class ExperimenterAgent:
     """An agent that performs in silico experiments using scientific tools."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: dict) -> None:
         """Initializes the ExperimenterAgent."""
+        self.config = config
         logger.info("ExperimenterAgent initialized.")
 
     def execute(self, step_details: Step, tool: SminaAdapter) -> dict:

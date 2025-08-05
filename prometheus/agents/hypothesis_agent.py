@@ -2,9 +2,10 @@
 import sys
 import logging
 from pathlib import Path
-import asyncio  # Added asyncio import for bridging async LLM call
-import json  # Added json import for parsing LLM response
-from rdkit import Chem  # Added for chemical SMILES validation
+import asyncio
+import json
+from rdkit import Chem, RDLogger
+from typing import Optional, List
 
 # --- Setup Project Path ---
 project_root = Path(__file__).resolve().parents[2]
@@ -13,40 +14,44 @@ sys.path.append(str(project_root))
 # --- Imports ---
 import lancedb
 from sentence_transformers import SentenceTransformer
-
-from prometheus.models import Step
+from prometheus.models import Step, ExperimentLog
 from prometheus.llm_utils import call_gemini
 
 logger = logging.getLogger(__name__)
 
-# --- Constants ---
-DB_PATH = project_root / "data" / "knowledge_base.lancedb"
-TABLE_NAME = "erlotinib_research"
-EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-
 
 class HypothesisAgent:
-    """An agent that formulates scientific hypotheses by querying a knowledge base and using an LLM."""
+    """Formulates scientific hypotheses by querying a knowledge base and using an LLM."""
 
-    def __init__(self):
+    def __init__(self, config: dict):
         logger.info("Initializing HypothesisAgent…")
+        self.config = config
         try:
-            logger.info(f"Loading embedding model: {EMBEDDING_MODEL_NAME}")
-            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            kb_config = config["knowledge_base"]
+            self.db_path = project_root / kb_config["db_path"]
+            self.table_name = kb_config["table_name"]
+            self.embedding_model_name = kb_config["embedding_model_name"]
+
+            logger.info("Loading embedding model: %s", self.embedding_model_name)
+            self.embedding_model = SentenceTransformer(self.embedding_model_name)
+
             logger.info("Connecting to knowledge base…")
-            self.db = lancedb.connect(DB_PATH)
-            self.table = self.db.open_table(TABLE_NAME)
+            self.db = lancedb.connect(self.db_path)
+            self.table = self.db.open_table(self.table_name)
             logger.info("HypothesisAgent initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize HypothesisAgent: {e}", exc_info=True)
+
+            # Suppress noisy RDKit logging
+            RDLogger.DisableLog("rdApp.*")
+        except Exception as exc:  # pragma: no cover – init should succeed
+            logger.error("Failed to initialize HypothesisAgent: %s", exc, exc_info=True)
             raise
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
     def _search_knowledge_base(self, query: str, limit: int = 3) -> str:
-        """Returns concatenated text snippets relevant to the query from the vector DB."""
-        logger.info(f"Searching knowledge base with query: '{query}'")
+        """Return concatenated literature snippets relevant to *query*."""
+        logger.info("Searching knowledge base with query: '%s'", query)
         query_vector = self.embedding_model.encode(query)
         try:
             results = self.table.search(query_vector).limit(limit).to_df()
@@ -57,107 +62,167 @@ class HypothesisAgent:
             context = "\n\n---\n\n".join(
                 f"Source: {row['source']}\n\nContent: {row['content']}" for _, row in results.iterrows()
             )
-            logger.info(f"Found {len(results)} relevant knowledge snippets.")
+            logger.info("Found %d relevant knowledge snippets.", len(results))
             return context
-        except Exception as e:
-            logger.error(f"Failed to search knowledge base: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error("Failed to search knowledge base: %s", exc, exc_info=True)
             return "Error searching knowledge base."
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-    def generate_hypothesis(self, baseline_result: dict, mission_params: dict, sim_box: dict, project_root: Path) -> Step | None:
-        """Generate a new hypothesis based on baseline docking results."""
-        logger.info("Generating new hypothesis based on baseline result…")
-
-        query = (
-            f"Erlotinib binding to EGFR active site resulted in a score of {baseline_result.get('binding_affinity_kcal_mol')} kcal/mol. "
-            f"What are known resistance mechanisms or potential improvements for quinazoline inhibitors like Erlotinib, "
-            f"specifically regarding the T790M mutation?"
+    # ---------------------------------------------------------------------
+    # Multi-Objective Hypothesis Generation (Guarded, Single-Prompt)
+    # ---------------------------------------------------------------------
+    async def generate_hypothesis(
+        self,
+        current_best_log: ExperimentLog,
+        knowledge_context: str,
+        mission_params: dict,
+        sim_box: dict,
+        project_root: Path,
+        history: list[dict],
+        scoring_weights: dict,
+        batch_size: int = 1,
+    ) -> Optional[List[Step]]:
+        """
+        Generates a BATCH of new hypotheses using a single, context-rich but
+        carefully "guarded" prompt to align with AI safety policies.
+        """
+        logger.info(
+            "Generating new multi-objective hypotheses (Guarded single-prompt strategy)…"
         )
-        knowledge_context = self._search_knowledge_base(query)
 
+        w_aff = scoring_weights["w_affinity"]
+        w_qed = scoring_weights["w_qed"]
+        w_sa = scoring_weights["w_sa_score"]
+
+        # ------------------------------------------------------------------
+        # 1. Format experiment history for inclusion in the prompt
+        # ------------------------------------------------------------------
+        history_summary_lines: list[str] = []
+        for h in history[-5:]:  # only the last 5 cycles to keep the prompt concise
+            history_summary_lines.append(
+                (
+                    "Cycle {cycle} – SMILES: {smiles} – Score: {score:.3f}"
+                ).format(
+                    cycle=h.get("cycle"),
+                    smiles=h.get("smiles_tested"),
+                    score=h.get("composite_score", 0.0),
+                )
+            )
+        history_summary = "\n".join(history_summary_lines) if history_summary_lines else "No prior cycles."
+
+        # ------------------------------------------------------------------
+        # 2. Build the guarded mega-prompt
+        # ------------------------------------------------------------------
         prompt = f"""
-You are an expert medicinal chemist AI. Your goal is to propose a novel modification to the drug Erlotinib to improve its binding affinity to EGFR, especially in the context of T790M resistance.
+**SYSTEM PREAMBLE:**
+You are an expert medicinal chemist AI operating as part of a computational research simulation called Prometheus. Your role is to propose hypothetical molecules for *in silico* (virtual) evaluation. You must not provide medical advice or instructions for real-world chemical synthesis. All of your outputs are for a simulated, theoretical context.
 
-**Baseline Experiment Result:**
-- Molecule: Erlotinib
-- Canonical SMILES: {mission_params['ligand_smiles']}
-- Predicted Binding Affinity to EGFR (1M17): {baseline_result.get('binding_affinity_kcal_mol')} kcal/mol
+**MISSION CONTEXT:**
+The simulation's goal is to design novel molecular structures to optimize a multi-objective composite score based on predicted properties against the EGFR T790M protein target.
 
-**Relevant Scientific Literature:**
+**Scoring Function:**
+Composite Score = ({w_aff:.1f} × Binding Affinity) + ({w_qed:.1f} × QED) + ({w_sa:.1f} × SA_Score)
+
+**Current Champion Molecule (for in silico optimization):**
+- SMILES: `{current_best_log.smiles}`
+- **Composite Score to Beat: {current_best_log.composite_score:.3f}**
+- --- Score Breakdown ---
+  - Binding Affinity: {current_best_log.average_binding_affinity:.3f}
+  - QED: {current_best_log.qed:.3f}
+  - SA Score: {current_best_log.sa_score:.3f}
+
+**Relevant Scientific Literature (for background context):**
 {knowledge_context}
 
-**Your Task:**
-Based on the baseline result and the literature, propose a single, chemically valid modification to Erlotinib. Your goal is to improve the binding affinity (achieve a more negative score).
+**Previous Simulation Cycles:**
+{history_summary}
 
-1. **Reasoning:** Briefly explain your proposed modification and why it might be effective.
-2. **Output:** Provide the canonical SMILES string for your new, modified molecule.
+**TASK:**
+Based on all the provided data, propose a BATCH of {batch_size} diverse and chemically valid molecules for the next simulation cycle. Your goal is to find structures with a higher predicted composite score.
 
-Respond ONLY with a JSON object in the following format:
-{{"reasoning": "...", "new_smiles": "..."}}
+For each proposed molecule, provide your scientific reasoning and the canonical SMILES string.
+
+Respond ONLY with a single JSON object in the following format:
+{{"candidates": [
+    {{"reasoning": "...", "new_smiles": "..."}},
+    {{"reasoning": "...", "new_smiles": "..."}}
+]}}
 """
 
-        # Bridge sync/async by awaiting inside asyncio.run()
-        logger.info("Calling LLM to generate novel hypothesis…")
-        try:
-            llm_response = asyncio.run(
-                call_gemini(prompt=prompt, model_name="gemini-2.5-pro", temperature=0.5)
-            )
-        except Exception as e:
-            logger.error(f"Async LLM call failed: {e}", exc_info=True)
-            return None
-
-        raw_output = ""
-        if isinstance(llm_response, dict):
-            raw_output = llm_response.get("raw_text_output", "")
-        else:
-            raw_output = str(llm_response)
-
-        if not raw_output or ("error" in raw_output.lower() and len(raw_output) < 120):
-            logger.error(f"LLM returned error/empty output: {raw_output}")
-            return None
-
-        # Handle possible markdown fencing
-        if "```" in raw_output:
+        # ------------------------------------------------------------------
+        # 3. Call the LLM with robust retries & validation
+        # ------------------------------------------------------------------
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            logger.info("LLM attempt %d/%d", attempt, max_retries)
             try:
-                raw_output = raw_output.split("```json")[-1]
-                raw_output = raw_output.split("```", 1)[0]
-            except Exception:
-                pass
+                llm_resp = await call_gemini(
+                    prompt=prompt,
+                    model_name="gemini-2.5-pro",
+                    temperature=0.7,
+                    max_output_tokens=65536,
+                )
 
-        try:
-            parsed = json.loads(raw_output)
-            reasoning = parsed["reasoning"]
-            new_smiles = parsed["new_smiles"]
+                # Handle explicit errors from the helper util
+                if llm_resp.get("error"):
+                    logger.error("LLM returned an error: %s", llm_resp["message"])
+                    continue
 
-            # Validate that the proposed SMILES is chemically valid
-            mol = Chem.MolFromSmiles(new_smiles)
-            if mol is None:
-                logger.error(f"LLM hallucinated an invalid SMILES string: {new_smiles}")
-                return None
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Failed to parse LLM JSON: {e}")
-            logger.error(f"Raw output: {raw_output}")
-            return None
+                raw = llm_resp.get("raw_text_output", "")
+                if "```" in raw:
+                    # Strip markdown code-fences if the model adds them
+                    raw = (
+                        raw.split("```json")[-1]
+                        if "```json" in raw
+                        else raw.split("```", 1)[1]
+                    )
+                    raw = raw.split("```", 1)[0]
 
-        logger.info(f"LLM reasoning: {reasoning}")
-        logger.info(f"New SMILES proposed: {new_smiles}")
+                parsed = json.loads(raw)
+                candidates = parsed.get("candidates", [])
+                if len(candidates) != batch_size:
+                    logger.warning(
+                        "Expected %d candidates, got %d – retrying…", batch_size, len(candidates)
+                    )
+                    continue
 
-        protein_abs_path = project_root / mission_params["protein_file"]
-        return Step(
-            id=2,
-            action=f"Test new hypothesis: {reasoning}",
-            details=None,
-            relevant_file_paths=[str(protein_abs_path)],
-            target_file=str(protein_abs_path),
-            simulation_parameters={
-                "ligand_smiles": new_smiles,
-                "center_x": sim_box["center_x"],
-                "center_y": sim_box["center_y"],
-                "center_z": sim_box["center_z"],
-                "size_x": sim_box["size_x"],
-                "size_y": sim_box["size_y"],
-                "size_z": sim_box["size_z"],
-            },
-        ) 
+                final_steps: List[Step] = []
+                protein_abs = project_root / mission_params["protein_file"]
+
+                valid_batch = True
+                for idx, cand in enumerate(candidates):
+                    reasoning = cand.get("reasoning", "").strip()
+                    new_smiles = cand.get("new_smiles", "").strip()
+
+                    if not new_smiles or Chem.MolFromSmiles(new_smiles) is None:
+                        logger.warning(
+                            "Invalid SMILES in candidate %d: %s – retrying…", idx, new_smiles
+                        )
+                        valid_batch = False
+                        break
+
+                    final_steps.append(
+                        Step(
+                            id=0,
+                            action=f"Test hypothesis: {reasoning}",
+                            relevant_file_paths=[str(protein_abs)],
+                            target_file=str(protein_abs),
+                            simulation_parameters={"ligand_smiles": new_smiles, **sim_box},
+                        )
+                    )
+
+                if not valid_batch:
+                    logger.info("One or more candidates invalid, retrying…")
+                    continue
+
+                # All good!
+                return final_steps
+
+            except Exception as exc:
+                logger.error("LLM call or parsing failed (attempt %d): %s", attempt, exc)
+                continue
+
+        logger.error(
+            "Failed to generate a valid batch of hypotheses after multiple attempts."
+        )
+        return None

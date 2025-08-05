@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 import hashlib
 
+import tomli as toml  # For parsing TOML configuration files
+
 # --- Setup Project Path ---
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
@@ -13,12 +15,6 @@ import lancedb
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
-
-# --- Configuration ---
-LITERATURE_DIR = project_root / "data" / "literature"
-DB_PATH = project_root / "data" / "knowledge_base.lancedb"
-TABLE_NAME = "erlotinib_research"
-EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'  # A fast, effective model
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -55,7 +51,7 @@ def parse_pdfs(directory: Path) -> list[dict]:
 def chunk_papers(papers: list[dict]) -> list[dict]:
     """Chunks the text of each paper into paragraphs."""
     all_chunks = []
-    logger.info("Chunking papers into paragraphs...")
+    logger.info("Chunking papers into paragraphs…")
 
     for paper in papers:
         # Split by double newline, a common paragraph separator
@@ -79,8 +75,21 @@ def main():
     """The main function to build our scientific knowledge base."""
     logger.info("--- Starting Knowledge Base Construction ---")
 
+    # 0. Load Configuration
+    logger.info("Loading configuration from config.toml…")
+    config_path = project_root / "config.toml"
+    try:
+        with config_path.open("rb") as f:
+            kb_config = toml.load(f)["knowledge_base"]
+    except (FileNotFoundError, KeyError) as e:
+        logger.error(f"Failed to load [knowledge_base] config: {e}", exc_info=True)
+        return
+
+    literature_dir = project_root / kb_config["literature_dir"]
+    db_path = project_root / kb_config["db_path"]
+
     # 1. Parse PDFs
-    papers = parse_pdfs(LITERATURE_DIR)
+    papers = parse_pdfs(literature_dir)
     if not papers:
         return
 
@@ -91,11 +100,10 @@ def main():
         return
 
     # 3. Embed Chunks
-    logger.info(f"Loading embedding model: {EMBEDDING_MODEL_NAME}")
-    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    logger.info(f"Loading embedding model: {kb_config['embedding_model_name']}")
+    model = SentenceTransformer(kb_config['embedding_model_name'])
 
-    logger.info("Generating vector embeddings for all knowledge chunks...")
-    # We get the content of each chunk to feed to the model
+    logger.info("Generating vector embeddings for all knowledge chunks…")
     contents_to_embed = [chunk['content'] for chunk in knowledge_chunks]
 
     # The model.encode() method is highly optimized and will show its own progress bar
@@ -108,21 +116,21 @@ def main():
     logger.info("Embeddings generated successfully.")
 
     # 4. Store in LanceDB
-    logger.info(f"Connecting to LanceDB at: {DB_PATH}")
-    db = lancedb.connect(DB_PATH)
+    logger.info(f"Connecting to LanceDB at: {db_path}")
+    db = lancedb.connect(db_path)
 
     # Check if the table already exists and drop it for a fresh start
-    if TABLE_NAME in db.table_names():
-        logger.warning(f"Table '{TABLE_NAME}' already exists. Dropping it for a fresh build.")
-        db.drop_table(TABLE_NAME)
+    if kb_config["table_name"] in db.table_names():
+        logger.warning(
+            f"Table '{kb_config['table_name']}' already exists. Dropping it for a fresh build.")
+        db.drop_table(kb_config["table_name"])
 
-    logger.info(f"Creating new LanceDB table: '{TABLE_NAME}'")
-    # We pass the first chunk with its vector to define the table schema
-    db.create_table(TABLE_NAME, data=knowledge_chunks)
+    logger.info(f"Creating new LanceDB table: '{kb_config['table_name']}'")
+    db.create_table(kb_config["table_name"], data=knowledge_chunks)
 
     logger.info(f"Successfully created and populated the table with {len(knowledge_chunks)} chunks.")
     logger.info("--- Knowledge Base Construction Complete ---")
 
 
 if __name__ == "__main__":
-    main() 
+    main()

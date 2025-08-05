@@ -1,105 +1,76 @@
 # Project Prometheus: An Autonomous AI Scientist for Drug Discovery
 
-**Project Prometheus is an autonomous AI framework designed to accelerate early-stage scientific discovery.** This system leverages a multi-agent architecture to mimic the scientific method: it consumes and understands research literature, formulates novel hypotheses, conducts virtual experiments, and iteratively learns from the results.
+**Project Prometheus is an autonomous AI framework designed to accelerate early-stage scientific discovery.** The system leverages a multi-agent architecture to reproduce the entire scientific method: it performs live research, formulates novel hypotheses, conducts multi-stage virtual experiments, learns from the results and publishes its findings as a fully-fledged scientific report.
 
-In its initial proof-of-concept run, the system successfully identified a known drug-resistance mechanism in an anti-cancer therapy and autonomously designed, tested, and validated a novel molecule with a predicted improvement in binding affinity—all within a two-hour development window.
+During a full mission run the AI autonomously designed and validated a candidate molecule that overcomes a well-known drug-resistance mechanism in an anti-cancer therapy. The final molecule achieved a **Composite Score of 8.746**, soaring past the baseline drug’s score of 5.311 and demonstrating sophisticated, multi-objective optimisation.
 
 [![Prometheus Demo Run](demo.gif)](demo.gif)
 
-*(This silent demo shows an end-to-end run where the AI establishes a baseline, reasons about the science, designs a new molecule, and validates its improved binding affinity.)*
+*(The demo shows an accelerated, end-to-end mission where the AI establishes a baseline, reasons about the science, designs batches of molecules, validates the best candidate and iteratively improves its discoveries.)*
 
 ---
 
 ## The Scientific Mission: Overcoming Erlotinib Resistance
 
-The project's inaugural mission targets the Epidermal Growth Factor Receptor (EGFR), a key protein in cancer development. The first-generation inhibitor, **Erlotinib**, is effective but often fails due to a specific drug-resistance mutation known as T790M.
+The inaugural mission targets the Epidermal Growth Factor Receptor (EGFR), a key protein in cancer development. The first-generation inhibitor **Erlotinib** is effective but often fails due to the T790M gate-keeper mutation.
 
-The AI's task was to understand this mechanism from the scientific literature and propose a novel molecular modification to Erlotinib to overcome this resistance.
+Prometheus’ task was to understand this mechanism and design a novel molecule that balances three competing objectives:
 
-**The Result:** The AI correctly identified that third-generation inhibitors use a **covalent bonding** strategy to overcome resistance. It then autonomously designed a new molecule that incorporated a reactive "warhead" onto the Erlotinib scaffold. In a virtual experiment using the `smina` docking tool, the AI's creation showed a more favorable binding affinity, validating its core hypothesis.
+* **Binding Affinity** – potency against the target.
+* **Drug-Likeness (QED)** – favourable physicochemical properties.
+* **Synthetic Accessibility (SA Score)** – feasibility of laboratory synthesis.
 
-## System Architecture
+### Result
 
-Prometheus operates through a loop of specialized AI agents:
+The AI discovered a new molecular scaffold that integrates a potent covalent *warhead*, a simplified, drug-like core and a novel linker that positions the molecule optimally inside the binding pocket. The champion achieved a **Composite Score of 8.746**.
 
-1.  **Knowledge Base Builder (`build_knowledge_base.py`):** Ingests and processes PDF research papers into a searchable vector database using LanceDB and Sentence-Transformers.
-2.  **Hypothesis Agent:** Queries the knowledge base for relevant information, reasons about the science, and proposes a novel, testable hypothesis in the form of a new molecule.
-    * **LLM Engine:** This agent utilizes Google's `Gemini 2.5 Pro` via its API to generate the scientific reasoning and molecular structure.
-3.  **Experimenter Agent:** Takes the AI-designed molecule and executes a realistic *in silico* experiment (molecular docking) using validated scientific software (`smina` and `Open Babel`).
-4.  **Validator Agent:** Parses the results of the experiment, confirms its successful completion, and determines if the AI's hypothesis was validated by the data.
-
-This closed-loop system ensures that the AI's creativity is constantly grounded by real-world (virtual) experimental data, mitigating LLM hallucination and guiding the discovery process with empirical evidence.
-
-## A Glimpse Into the Discovery Loop
-
-The core of Project Prometheus is its ability to reason from evidence and test its own hypotheses. Here are the key moments from a successful discovery run:
-
-#### 1. The Mission Briefing
-The process begins by defining the scientific target and parameters in the `config.toml` file. This sets the stage for the entire experiment.
-
-![Mission Briefing](images/screenshot-1-config.png)
-
-#### 2. The AI's Hypothesis
-After running a baseline experiment, the `HypothesisAgent` consumes the scientific literature from its knowledge base. It then formulates a novel hypothesis, explaining its reasoning and outputting a concrete molecular blueprint.
-
-> **AI's Reasoning:** The primary mechanism of resistance to Erlotinib is the T790M 'gatekeeper' mutation... This is typically achieved by incorporating an electrophilic 'warhead,' most commonly an acrylamide group, which acts as a Michael acceptor. My proposed modification adopts this validated strategy. I will replace the non-essential 3-ethynyl group on Erlotinib's aniline ring with an acrylamide group at the 4-position. This modification is designed to position the reactive acrylamide moiety optimally to form a covalent bond with Cys797, thereby anchoring the inhibitor in the binding pocket and overcoming the reduced affinity associated with the T790M mutation.
-
-> **Proposed Molecule (SMILES):**
-> ```
-> C=CC(=O)Nc1ccc(cc1)Nc1ncnc2cc(OCCOC)c(OCCOC)cc12
-> ```
-
-#### 3. The Validated Result
-Finally, the `ExperimenterAgent` and `ValidatorAgent` test the new molecule. The final report provides the empirical verdict, confirming a successful outcome with a predicted binding affinity improvement of **0.500 kcal/mol**, achieving a final score of **-6.2 kcal/mol**.
-
-![Final Report](images/screenshot-2-report.png)
+![Champion Molecule](reports/mission_20250805_123610/images/cycle_05_CS_8.746.png)
 
 ---
 
-## Setup and Execution Guide
+## System Architecture
 
-Follow these steps to reproduce the autonomous discovery loop on macOS.
+Prometheus is orchestrated by a central mission script that coordinates seven specialised agents:
+
+1. **Knowledge Base Builder (`build_knowledge_base.py`)** – ingests PDF literature and constructs a LanceDB vector store to form the AI’s long-term memory.
+2. **Research Agent** – performs live, targeted web research with OpenAI’s `o4-mini-deep-research` model to augment the static knowledge base at the start of each discovery cycle.
+3. **Hypothesis Agent** – synthesises all available knowledge with Google’s **Gemini 2.5 Pro** to generate batches of novel, testable molecular hypotheses.
+4. **Experimenter Agent** – executes high-throughput *in silico* screening, performing molecular docking simulations with **smina** and **Open Babel**.
+5. **Scoring Agent** – calculates QED & SA scores and computes the final multi-objective Composite Score for every candidate.
+6. **MD Validator Agent** – runs GPU-accelerated Molecular Dynamics simulations with **OpenMM** to confirm the stability of the best ligand–protein complexes.
+7. **Report Synthesiser Agent** – collates all findings into a peer-review-ready scientific report in Markdown.
+
+This workflow grounds large-language-model creativity in empirical, physics-based simulation data at every stage, dramatically accelerating discovery while minimising hallucination.
+
+---
+
+## Setup & Execution Guide
 
 ### 1. Prerequisites
 
-* [Homebrew](https://brew.sh)
-* [Git](https://git-scm.com)
+* macOS or Linux
+* Git
+* [Miniforge](https://github.com/conda-forge/miniforge) (for `mamba`)
 
 ### 2. Environment Setup with Mamba
 
-We use **mamba** to create a dedicated, isolated environment for this project, ensuring all complex scientific dependencies are installed correctly.
-
-#### 2.1 Install Miniforge
+Create and activate the environment with all heavy scientific dependencies:
 
 ```bash
-# Download the installer for Apple Silicon (arm64) Macs
-curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh"
-
-# Run the installer and initialize your shell
-bash Miniforge3-MacOSX-arm64.sh -b -p ~/miniforge3
-~/miniforge3/bin/conda init zsh
-```
-
-> **Important:** Close and reopen your terminal window to finalize the installation. You should see `(base)` at the start of your prompt.
-
-#### 2.2 Create and Activate the Prometheus Environment
-
-```bash
-# Create the environment
-mamba create -n prometheus -c conda-forge python=3.10 rdkit smina openbabel
-
-# Activate the environment
+mamba create -n prometheus -c conda-forge python=3.10 rdkit smina openbabel "openmm=8.0.0" pdbfixer openmmforcefields
 mamba activate prometheus
 ```
 
 Your prompt will now begin with `(prometheus)`.
 
+#### Optional: GPU Acceleration on Apple Silicon
+
+For a dramatic speed-up in the MD validation step, follow the instructions in `docs/METAL_PLUGIN_SETUP.md` to compile and install the OpenMM-Metal plugin.
+
 ### 3. Project Configuration
 
-#### 3.1 Clone the Repository and Install Dependencies
-
 ```bash
-# Clone this repository
+# Clone the repository
 git clone https://github.com/mescuwa/project-prometheus.git
 cd project-prometheus
 
@@ -107,35 +78,28 @@ cd project-prometheus
 pip install -r requirements.txt
 ```
 
-#### 3.2 Set Your API Key
+Create a `.env` file in the project root and add your API keys:
 
-The Hypothesis Agent requires a Google Gemini API key. Create a file named `.env` in the project root and add your key:
-
-```bash
-GEMINI_API_KEY="YOUR_API_KEY_HERE"
+```text
+GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
+OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 ```
 
-### 4. Building the Knowledge Base
+### 4. Build the Knowledge Base
 
-#### 4.1 Curate the Literature
-
-The AI's reasoning is guided by the literature you provide. Due to copyright, the source papers are **not** included in this repository. Acquire the PDFs cited in the *Citations* section and place them into the `data/literature/` directory.
-
-#### 4.2 Run the Indexer Script
+Place your PDF literature into `data/literature/` and run:
 
 ```bash
 python scripts/build_knowledge_base.py
 ```
 
-This script reads your PDFs and builds the local vector database (`knowledge_base.lancedb`).
-
-### 5. Running the Autonomous Experiment
+### 5. Run an Autonomous Mission
 
 ```bash
-python scripts/run_milestone_2.py
+python scripts/run.py
 ```
 
-The script runs the baseline experiment, generates and tests a novel hypothesis, and prints a final report comparing the results.
+By default the configuration runs a quick, low-cost MD validation. For a full-precision run edit `config.toml` and set `quick_test = false` in the `[md_simulation]` section. All outputs – including the final Markdown report, 2-D images and CSV data – are written to a timestamped directory in `reports/`.
 
 ---
 
@@ -151,6 +115,6 @@ Prometheus stands on the shoulders of giants. The AI's reasoning is guided by a 
 
 ### Data Sources
 
-* **Protein Structure:** Epidermal Growth Factor Receptor (EGFR) kinase domain coordinates obtained from the RCSB Protein Data Bank.
-  * PDB ID: **1M17**
-  * Stamos, J., Sliwkowski, M. X., & Eigenbrot, C. (2002). *Structure of the EGFR kinase domain alone and in complex with a 4-anilinoquinazoline inhibitor*. **JBC**, 277(48), 46265-46272. https://doi.org/10.1074/jbc.M207135200 
+* **Protein Structure:** Epidermal Growth Factor Receptor (EGFR) kinase domain coordinates obtained from the RCSB Protein Data Bank.  
+  * **PDB ID:** 1M17  
+  * Stamos, J., Sliwkowski, M. X., & Eigenbrot, C. (2002). *Structure of the EGFR kinase domain alone and in complex with a 4-anilinoquinazoline inhibitor*. **JBC**, 277(48), 46265-46272. https://doi.org/10.1074/jbc.M207135200

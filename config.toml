@@ -1,6 +1,16 @@
 [vina_tool]
 # We are now using Smina, a Vina fork with improved features. Assuming it's on PATH.
 executable_path = "smina"
+# Number of times to run docking for each molecule to get an average score.
+docking_runs = 3
+# Faster rough screen for initial filtering
+screening_docking_runs = 1
+
+[knowledge_base]
+literature_dir = "data/literature"
+db_path = "data/knowledge_base.lancedb"
+table_name = "erlotinib_research"
+embedding_model_name = "all-MiniLM-L6-v2"  # A fast, effective model
 
 [mission_parameters]
 pdb_id = "1M17"
@@ -14,4 +24,67 @@ center_y = 0.260
 center_z = 52.761
 size_x = 20.0
 size_y = 20.0
-size_z = 20.0 
+size_z = 20.0
+
+[autonomous_loop]
+# The maximum number of discovery cycles to run after the baseline.
+max_cycles = 5
+# Number of hypotheses to generate per cycle
+hypothesis_batch_size = 3
+
+# A list of all SMILES strings that have been tested.
+# This prevents the AI from testing the same molecule twice.
+# We will pre-populate it with the baseline Erlotinib.
+
+tested_smiles = [
+    "COCCOc1cc2c(cc1OCCOC)ncnc2Nc1cccc(c1)C#C"
+]
+
+[scoring]
+# Define the weights for the composite score.
+# The goal is to MAXIMIZE this score.
+# We use a negative weight for affinity and SA score because we want to MINIMIZE them.
+
+w_affinity = -1.0  # (e.g., -6.7 affinity * -1.0 = +6.7 points)
+w_qed     = 5.0   # QED is a score from 0-1. A high weight encourages "drug-likeness".
+w_sa_score = -1.0 # SA score is ~1 (easy) to 10 (hard). A negative weight penalizes difficult-to-make molecules.
+
+[md_simulation]
+# --- Quick test flags ---
+# Set to true to run a very short simulation for debugging the main loop.
+# Set to false for a full, scientifically valid production run.
+quick_test = true
+quick_test_steps = 10000 # A few hundred steps is enough to see if it starts
+
+# Molecular Dynamics (MD) validation parameters
+# 500,000 steps with 2 fs timestep ≈ 1 ns simulation
+simulation_steps = 500000
+
+# Frequency (in steps) to write out state/trajectory information
+report_interval = 5000
+
+# Force fields
+protein_force_field = "amber14-all.xml"
+protein_water_model = "amber14/tip3pfb.xml"
+ligand_force_field  = "gaff-2.11"
+
+[research_agent]
+# This is a master "on/off" switch for this expensive feature.
+enabled = false
+
+# The model to use for deep research. Options: "o3-deep-research", "o4-mini-deep-research"
+model = "o4-mini-deep-research-2025-06-26"
+
+# The maximum number of tool calls (e.g., web searches) the agent is allowed to make.
+# This is our primary cost control mechanism.
+max_tool_calls = 15
+
+# The timeout in seconds for the API call. Deep research is slow.
+# The documentation recommends background mode, but for a synchronous call, a long timeout is needed.
+timeout = 1800
+
+[llm_models]
+# Model for generating new molecular ideas
+hypothesis_model = "gemini-2.5-pro"
+# Model for writing the final scientific paper
+report_model = "gemini-2.5-pro"

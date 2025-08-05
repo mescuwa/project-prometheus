@@ -1,55 +1,63 @@
 # prometheus/tools/smina_adapter.py
-import subprocess
-import re
-from pathlib import Path
+"""Adapter for running multiple Smina (AutoDock Vina fork) docking simulations
+with averaging over repeated runs for more robust scores.
+"""
+
+from __future__ import annotations
+
 import logging
-import tempfile  # Using a temporary directory for each run
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import shutil
 
 logger = logging.getLogger(__name__)
 
+
 class SminaAdapter:
-    """A wrapper for the Smina command-line tool (a Vina fork)."""
+    """Wrapper around the Smina command-line interface."""
 
-    def __init__(self, smina_executable_path: str):
-        """Initializes the adapter with the path to the Smina executable."""
-        self.smina_path = smina_executable_path
-        self.babel_path = "obabel"  # Assumes obabel is in the conda environment's PATH
+    def __init__(self, config: dict):
+        smina_config = config["vina_tool"]
+        self.smina_path = smina_config["executable_path"]
+        # Open Babel must be in PATH – we assume the conda env took care of that.
+        self.babel_path = "obabel"
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Generic command helper
+    # ---------------------------------------------------------------------
 
-    def _run_command(self, command: list, cwd: Path) -> tuple[bool, str, str]:
-        """Run an external command and return (success, stdout, stderr)."""
+    def _run_command(self, command: list[str], cwd: Path) -> tuple[bool, str, str]:
+        """Run *command* in *cwd*.  Returns (success, stdout, stderr)."""
         try:
-            logger.info(f"Running command: {' '.join(command)} (cwd={cwd})")
-            process = subprocess.run(
+            logger.debug("Running command: %s", " ".join(command))
+            proc = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                check=False,
                 timeout=300,
                 cwd=cwd,
             )
-            if process.returncode == 0:
-                return True, process.stdout, process.stderr
-            logger.error(f"Command failed (rc={process.returncode}): {' '.join(command)}")
-            logger.error(f"STDOUT: {process.stdout.strip()}")
-            logger.error(f"STDERR: {process.stderr.strip()}")
-            return False, process.stdout, process.stderr
-        except Exception as e:
-            logger.error(f"Exception running command {' '.join(command)}: {e}", exc_info=True)
-            return False, "", str(e)
+            if proc.returncode == 0:
+                return True, proc.stdout, proc.stderr
+            logger.error("Command failed (rc=%s): %s", proc.returncode, " ".join(command))
+            logger.debug("STDOUT: %s", proc.stdout)
+            logger.debug("STDERR: %s", proc.stderr)
+            return False, proc.stdout, proc.stderr
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Exception running command: %s", exc, exc_info=True)
+            return False, "", str(exc)
 
-    # ------------------------------------------------------------------
-    # Preparation steps
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Preparation helpers
+    # ---------------------------------------------------------------------
 
-    def _prepare_receptor(self, protein_pdb_file: Path, output_dir: Path) -> Path | None:
-        """Convert a protein PDB file to PDBQT, removing non-receptor atoms."""
-        logger.info(f"Preparing receptor from: {protein_pdb_file}")
-        output_receptor = output_dir / f"{protein_pdb_file.stem}.pdbqt"
-        command = [
+    def _prepare_receptor(self, protein_pdb_file: Path, out_dir: Path) -> Path | None:
+        output = out_dir / f"{protein_pdb_file.stem}.pdbqt"
+        cmd = [
             self.babel_path,
             "-i",
             "pdb",
@@ -57,135 +65,127 @@ class SminaAdapter:
             "-o",
             "pdbqt",
             "-O",
-            str(output_receptor),
+            str(output),
             "-xr",
         ]
-        success, _, stderr = self._run_command(command, output_dir)
-        if not success:
-            logger.error(f"Failed to prepare receptor: {stderr}")
+        ok, _, err = self._run_command(cmd, out_dir)
+        if not ok:
+            logger.error("Failed to prepare receptor: %s", err)
             return None
-        logger.info(f"Receptor prepared: {output_receptor}")
-        return output_receptor
+        return output
 
-    def _prepare_ligand(self, ligand_smiles: str, output_dir: Path) -> Path | None:
-        """Convert a ligand SMILES string to PDBQT with 3D coordinates and hydrogens."""
-        logger.info(f"Preparing ligand from SMILES: {ligand_smiles[:30]}...")
-        output_ligand = output_dir / "ligand.pdbqt"
-        command = [
+    def _prepare_ligand(self, smiles: str, out_dir: Path) -> Path | None:
+        output = out_dir / "ligand.pdbqt"
+        cmd = [
             self.babel_path,
             "-i",
             "smi",
-            f"-:{ligand_smiles}",
+            f"-:{smiles}",
             "-o",
             "pdbqt",
             "-O",
-            str(output_ligand),
+            str(output),
             "--gen3d",
             "-p",
             "7.4",
         ]
-        success, _, stderr = self._run_command(command, output_dir)
-        if not success:
-            logger.error(f"Failed to prepare ligand: {stderr}")
+        ok, _, err = self._run_command(cmd, out_dir)
+        if not ok:
+            logger.error("Failed to prepare ligand: %s", err)
             return None
-        logger.info(f"Ligand prepared: {output_ligand}")
-        return output_ligand
+        return output
 
-    # ------------------------------------------------------------------
-    # Config handling
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Config writer & Smina execution
+    # ---------------------------------------------------------------------
 
-    def _write_config_file(
-        self,
-        receptor_pdbqt: Path,
-        ligand_pdbqt: Path,
-        center: dict,
-        box_size: dict,
-        output_dir: Path,
-    ) -> Path:
-        """Create a conf.txt file for Smina/Vina."""
-        cfg = output_dir / "conf.txt"
-        content = f"""
-receptor = {receptor_pdbqt.name}
-ligand = {ligand_pdbqt.name}
+    def _write_config(self, receptor: Path, ligand: Path, center: dict, box: dict, out_dir: Path) -> Path:
+        cfg_path = out_dir / "conf.txt"
+        cfg_path.write_text(
+            (
+                f"receptor = {receptor.name}\n"
+                f"ligand = {ligand.name}\n\n"
+                f"center_x = {center['x']}\ncenter_y = {center['y']}\ncenter_z = {center['z']}\n\n"
+                f"size_x = {box['x']}\nsize_y = {box['y']}\nsize_z = {box['z']}\n\n"
+                "exhaustiveness = 16\n"
+            )
+        )
+        return cfg_path
 
-center_x = {center['x']}
-center_y = {center['y']}
-center_z = {center['z']}
-
-size_x = {box_size['x']}
-size_y = {box_size['y']}
-size_z = {box_size['z']}
-
-exhaustiveness = 16
-"""
-        cfg.write_text(content.strip() + "\n")
-        logger.info(f"Config file written: {cfg}")
-        return cfg
-
-    # ------------------------------------------------------------------
-    # Execution & parsing
-    # ------------------------------------------------------------------
-
-    def _run_smina(self, config_file: Path, output_dir: Path) -> dict:
-        """Execute Smina docking."""
-        log_path = output_dir / "smina_run.log"
-        out_struct = output_dir / "docked_ligand.pdbqt"
-        cmd = [
-            self.smina_path,
-            "--config",
-            config_file.name,
-            "--log",
-            log_path.name,
-            "--out",
-            out_struct.name,
-        ]
-        success, _, stderr = self._run_command(cmd, output_dir)
-        if not success:
-            return {"status": "ERROR", "log_file": log_path, "error": stderr}
+    def _run_smina(self, cfg: Path, out_dir: Path) -> dict:
+        log_path = out_dir / "smina.log"
+        out_struct = out_dir / "docked_ligand.pdbqt"
+        cmd = [self.smina_path, "--config", cfg.name, "--log", log_path.name, "--out", out_struct.name]
+        ok, _, err = self._run_command(cmd, out_dir)
         return {
-            "status": "SUCCESS",
-            "log_file": log_path,
-            "output_structure_file": out_struct,
-            "error": None,
+            "status": "SUCCESS" if ok else "ERROR",
+            "log": log_path,
+            "out_struct": out_struct,
+            "error": err if not ok else None,
         }
 
-    def _parse_outputs(self, log_file: Path) -> dict:
-        """Parses the Smina log file to extract the best binding affinity."""
-        try:
-            if not log_file.exists():
-                return {"status": "ERROR", "error": "Log file not found for parsing."}
+    # ---------------------------------------------------------------------
+    # Parsing helper
+    # ---------------------------------------------------------------------
 
-            log_content = log_file.read_text()
+    _TABLE_HEADER = re.compile(r"^\s*-----\+", re.MULTILINE)
+    _SCORE_LINE = re.compile(r"^\s*1\s+(-?\d+\.\d+)", re.MULTILINE)
 
-            # Step 1: Locate the start of the results table (line of dashes)
-            table_header_pattern = r"^\s*-----\+"
-            header_match = re.search(table_header_pattern, log_content, re.MULTILINE)
+    def _parse_score(self, log_file: Path) -> float | None:
+        if not log_file.exists():
+            return None
+        content = log_file.read_text()
+        header = self._TABLE_HEADER.search(content)
+        if not header:
+            return None
+        match = self._SCORE_LINE.search(content[header.end() :])
+        if match:
+            return float(match.group(1))
+        return None
 
-            if not header_match:
-                logger.warning("Could not find the results table header in the log file.")
-                return {"status": "ERROR", "error": "Could not parse score: results table not found."}
+    # ---------------------------------------------------------------------
+    # Single docking run (private)
+    # ---------------------------------------------------------------------
 
-            # Step 2: Search only in the section after the header for mode 1
-            results_section = log_content[header_match.end():]
-            score_pattern = r"^\s*1\s+(-?\d+\.\d+)"
-            score_match = re.search(score_pattern, results_section, re.MULTILINE)
+    def _run_single(self, pdb_file: Path, smiles: str, center: dict, box: dict) -> dict:
+        """Run one docking and return result dict with status & score."""
+        with tempfile.TemporaryDirectory(prefix="prometheus_dock_") as tmp:
+            tmp_dir = Path(tmp)
+            receptor = self._prepare_receptor(pdb_file, tmp_dir)
+            if receptor is None:
+                return {"status": "ERROR", "stage": "prepare_receptor"}
 
-            if score_match:
-                best_score = float(score_match.group(1))
-                logger.info(f"Successfully parsed binding affinity: {best_score} kcal/mol")
-                return {"status": "SUCCESS", "binding_affinity_kcal_mol": best_score}
+            ligand = self._prepare_ligand(smiles, tmp_dir)
+            if ligand is None:
+                return {"status": "ERROR", "stage": "prepare_ligand"}
 
-            logger.warning("Found results table, but could not parse score for mode 1.")
-            return {"status": "ERROR", "error": "Could not parse score from results table."}
+            cfg = self._write_config(receptor, ligand, center, box, tmp_dir)
+            run_res = self._run_smina(cfg, tmp_dir)
+            if run_res["status"] == "ERROR":
+                run_res["stage"] = "run_smina"
+                return run_res
 
-        except Exception as e:
-            logger.error(f"Error parsing log file {log_file}: {e}", exc_info=True)
-            return {"status": "ERROR", "error": str(e)}
+            score = self._parse_score(run_res["log"])
+            if score is None:
+                return {"status": "ERROR", "stage": "parse_score"}
 
-    # ------------------------------------------------------------------
+            # Persist docked ligand file so that downstream MD step can access it
+            try:
+                persistent_path = Path(tempfile.gettempdir()) / f"{smiles[:15].replace('/', '_')}_{pdb_file.stem}_docked.pdbqt"
+                shutil.copy(run_res["out_struct"], persistent_path)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("Could not copy docked structure to persistent path: %s", exc)
+                persistent_path = run_res["out_struct"]
+
+            return {
+                "status": "SUCCESS",
+                "score": score,
+                "docked_ligand_file": persistent_path,
+            }
+
+    # ---------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------
 
     def dock(
         self,
@@ -193,47 +193,35 @@ exhaustiveness = 16
         ligand_smiles: str,
         center: dict,
         box_size: dict,
+        num_runs: int = 1,
     ) -> dict:
-        """
-        Run the full docking workflow and return a structured result dict.
-        Uses a temporary directory to keep runs clean.
-        """
-        with tempfile.TemporaryDirectory(prefix="prometheus_run_") as temp_dir_str:
-            out_dir = Path(temp_dir_str)
-            logger.info(f"--- Starting Docking Run in Temp Directory: {out_dir} ---")
+        """Run *num_runs* docking simulations and return averaged results."""
+        logger.info("Starting docking of molecule (runs=%s)…", num_runs)
 
-            # 1. Prepare structures
-            receptor = self._prepare_receptor(protein_pdb_file, out_dir)
-            if receptor is None:
-                return {"status": "ERROR", "stage": "prepare_receptor"}
+        scores: list[float] = []
+        first_docked_path: Path | None = None
+        for run_idx in range(1, num_runs + 1):
+            logger.info("Docking run %d/%d", run_idx, num_runs)
+            res = self._run_single(protein_pdb_file, ligand_smiles, center, box_size)
+            if res["status"] == "SUCCESS":
+                scores.append(res["score"])
+                if first_docked_path is None and res.get("docked_ligand_file"):
+                    first_docked_path = res["docked_ligand_file"]
+                logger.info("Run %d score: %.3f kcal/mol", run_idx, res["score"])
+            else:
+                logger.error("Docking run %d failed (stage=%s)", run_idx, res.get("stage"))
 
-            ligand = self._prepare_ligand(ligand_smiles, out_dir)
-            if ligand is None:
-                return {"status": "ERROR", "stage": "prepare_ligand"}
+        if not scores:
+            return {"status": "ERROR", "stage": "all_runs_failed"}
 
-            # 2. Create config file
-            cfg = self._write_config_file(receptor, ligand, center, box_size, out_dir)
+        avg = float(np.mean(scores))
+        std_dev = float(np.std(scores))
+        logger.info("Average binding affinity: %.3f ± %.3f kcal/mol", avg, std_dev)
 
-            # 3. Run Smina
-            run_res = self._run_smina(cfg, out_dir)
-            if run_res["status"] == "ERROR":
-                run_res["stage"] = "run_smina"
-                return run_res
-
-            # 4. Parse output log
-            parse_res = self._parse_outputs(run_res["log_file"])
-            if parse_res["status"] == "ERROR":
-                return {
-                    "status": "ERROR",
-                    "stage": "parse_outputs",
-                    "message": parse_res["error"],
-                    "log_file_path": str(run_res["log_file"]),
-                }
-
-            # 5. Success
-            logger.info("--- Docking Run Completed Successfully ---")
-            return {
-                "status": "SUCCESS",
-                "binding_affinity_kcal_mol": parse_res["binding_affinity_kcal_mol"],
-                "docked_ligand_file": run_res["output_structure_file"],
-            } 
+        return {
+            "status": "SUCCESS",
+            "average_binding_affinity": avg,
+            "std_dev_binding_affinity": std_dev,
+            "all_scores": scores,
+            "docked_ligand_file": first_docked_path,
+        }
