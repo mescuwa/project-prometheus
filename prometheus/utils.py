@@ -10,6 +10,7 @@ from datetime import datetime
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
+from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 from rdkit.Chem.Draw import rdMolDraw2D
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,17 @@ def generate_molecule_image(
             logger.error("Could not parse SMILES – skipping image generation: %s", smiles)
             return False
 
+        # --- NEW: Automatically calculate and add the formula ---
+        try:
+            mol_with_hs = Chem.AddHs(mol)
+            formula = CalcMolFormula(mol_with_hs)
+            # Create a rich legend with the name and the formula
+            legend = f"{molecule_name} | {formula}"
+        except Exception:
+            # Fallback to the original name if formula calculation fails
+            legend = molecule_name
+        # --- END OF NEW CODE ---
+
         # Explicitly generate a single, clean 2D conformation.
         AllChem.Compute2DCoords(mol)
 
@@ -39,7 +51,7 @@ def generate_molecule_image(
 
         width, height = size
         drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
-        drawer.DrawMolecule(mol, legend=molecule_name)
+        drawer.DrawMolecule(mol, legend=legend)
         drawer.FinishDrawing()
         svg = drawer.GetDrawingText()
 
@@ -50,7 +62,7 @@ def generate_molecule_image(
             svg2png(bytestring=svg.encode(), write_to=str(output_path))
         except ImportError:
             logger.debug("cairosvg not available – falling back to RDKit PNG rendering.")
-            img = Draw.MolToImage(mol, size=size, legend=molecule_name)
+            img = Draw.MolToImage(mol, size=size, legend=legend)
             img.save(output_path)
 
         logger.debug("Generated molecule image at %s", output_path)
