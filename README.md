@@ -5,6 +5,7 @@
 During a recent benchmark mission, the V3.1+ platform autonomously designed a novel inhibitor for the Epidermal Growth Factor Receptor (EGFR), a key anti-cancer target. The final molecule achieved a **Composite Score of 9.661**, a significant leap in performance over both the baseline drug (Erlotinib) and the previous V2.0 architecture, demonstrating a state-of-the-art capability for intelligent, multi-objective optimization.
 
 ![Prometheus V3.1+ Champion Molecule](assets/champion_molecule_v3.1.png)
+
 *(The final champion molecule designed by the V3.1+ architecture for the EGFR target, achieving a record-breaking composite score.)*
 
 ---
