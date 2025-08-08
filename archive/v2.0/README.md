@@ -24,7 +24,7 @@ Prometheus’ task was to understand this mechanism and design a novel molecule 
 
 The AI discovered a new molecular scaffold that integrates a potent covalent *warhead*, a simplified, drug-like core and a novel linker that positions the molecule optimally inside the binding pocket. The champion achieved a **Composite Score of 8.746**.
 
-![Champion Molecule](archive/v2.0/champion_molecule_v2.png)
+![Champion Molecule](./champion_molecule_v2.png)
 
 ### The AI-Generated Mission Report
 
