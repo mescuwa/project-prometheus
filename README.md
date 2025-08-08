@@ -1,68 +1,119 @@
 # Project Prometheus: An Autonomous AI Scientist for Drug Discovery
 
-**Project Prometheus is an autonomous AI framework designed to accelerate early-stage scientific discovery.** The system leverages a multi-agent architecture to reproduce the entire scientific method: it performs live research, formulates novel hypotheses, conducts multi-stage virtual experiments, learns from the results and publishes its findings as a fully-fledged scientific report.
+**Project Prometheus is an autonomous AI framework designed to accelerate early-stage scientific discovery.** The system leverages a hierarchical, multi-agent architecture to replicate the full scientific method: it synthesizes knowledge from a research corpus, formulates novel hypotheses guided by an expert AI consultant, conducts multi-stage virtual experiments, learns from the results, and publishes its findings in a peer-review-ready scientific report.
 
-During a full mission run the AI autonomously designed and validated a candidate molecule that overcomes a well-known drug-resistance mechanism in an anti-cancer therapy. The final molecule achieved a **Composite Score of 8.746**, soaring past the baseline drug’s score of 5.311 and demonstrating sophisticated, multi-objective optimisation.
+During a recent benchmark mission, the V3.1+ platform autonomously designed a novel inhibitor for the Epidermal Growth Factor Receptor (EGFR), a key anti-cancer target. The final molecule achieved a **Composite Score of 9.661**, a significant leap in performance over both the baseline drug (Erlotinib) and the previous V2.0 architecture, demonstrating a state-of-the-art capability for intelligent, multi-objective optimization.
 
-[![Prometheus Demo Run](demo.gif)](demo.gif)
-
-*(The demo shows an accelerated, end-to-end mission where the AI establishes a baseline, reasons about the science, designs batches of molecules, validates the best candidate and iteratively improves its discoveries.)*
+![Prometheus V3.1+ Champion Molecule](reports/mission_20250807_190344/images/cycle_03_CS_9.661.png)
+*(The final champion molecule designed by the V3.1+ architecture for the EGFR target, achieving a record-breaking composite score.)*
 
 ---
 
-## The Scientific Mission: Overcoming Erlotinib Resistance
+## The Scientific Mission: Benchmarking Against EGFR
 
-The inaugural mission targets the Epidermal Growth Factor Receptor (EGFR), a key protein in cancer development. The first-generation inhibitor **Erlotinib** is effective but often fails due to the T790M gate-keeper mutation.
+The platform's latest mission targeted the Epidermal Growth Factor Receptor (EGFR, PDB: 1M17), a well-understood protein in cancer development. The objective was to benchmark the new V3.1+ architecture against the first-generation inhibitor **Erlotinib** and the results from the legacy V2.0 platform.
 
-Prometheus’ task was to understand this mechanism and design a novel molecule that balances three competing objectives:
+The AI's task was to design a novel molecule that balances four competing objectives:
 
-* **Binding Affinity** – potency against the target.
-* **Drug-Likeness (QED)** – favourable physicochemical properties.
-* **Synthetic Accessibility (SA Score)** – feasibility of laboratory synthesis.
+* **Binding Affinity:** Potency against the target, as predicted by molecular docking.
+* **Interaction Fingerprint (IFP):** The quality of specific, key chemical bonds formed with the protein.
+* **Drug-Likeness (QED):** Favorable physicochemical properties.
+* **Synthetic Accessibility (SA Score):** Feasibility of laboratory synthesis.
+
+> **Note on the Composite Score:** The AI's decision-making is guided by a weighted composite score. This score is transparently defined in the `config.toml` file and allows the system to balance competing objectives. For the EGFR mission, the formula was:
+>
+> `Score = (-1.0 * Affinity) + (5.0 * QED) + (-1.0 * SA Score) + (10.0 * IFP Score)`
+>
+> The negative weights for Affinity and SA Score correctly reward lower values (stronger binding, easier synthesis), while the high weight for the IFP Score strongly incentivizes the formation of specific, high-quality chemical bonds.
 
 ### Result
 
-The AI discovered a new molecular scaffold that integrates a potent covalent *warhead*, a simplified, drug-like core and a novel linker that positions the molecule optimally inside the binding pocket. The champion achieved a **Composite Score of 8.746**.
+The V3.1+ platform successfully designed a novel quinazolin-4-one scaffold with a heavily fluorinated aniline fragment. This candidate achieved a predicted binding affinity of **-8.7 kcal mol⁻¹** and a final **Composite Score of 9.661**. This result not only surpassed the Erlotinib baseline but also definitively exceeded the V2.0 champion's score of 8.746, proving the superiority of the new architecture.
 
-![Champion Molecule](reports/mission_20250805_123610/images/cycle_05_CS_8.746.png)
+It is important to note that this record-breaking result was achieved in a deliberately constrained, 5-cycle benchmark run. The mission was executed using a Tier 1 developer API key, which imposes a strict rate limit of 30,000 tokens per minute. This demonstrates the platform's exceptional efficiency, but also suggests that with access to higher-tier resources and more extensive, longer-duration runs, there is significant potential for even further optimization and discovery.
 
 ### The AI-Generated Mission Report
 
-At the conclusion of its discovery campaign, Prometheus's `Report Synthesiser Agent` autonomously attempts to write a full scientific paper detailing its methods, results, and conclusions. However, it's still a work in progress, and isn't perfect. I intend to integrate a multistage LLM mechanism, where each section is written per instance. This way, the report can be more granular and in-depth. However, in the interim, you may see what it's currently capable of. I will also attach the logs below, which provide a much more in-depth view of the current systems workflow at every step. 
+At the conclusion of its campaign, Prometheus's `ReportSynthesizerAgent` produced a full, peer-review-quality scientific paper detailing its methods, results, and limitations. For full transparency and to allow for a deeper analysis of the AI's step-by-step reasoning, the raw log file for this definitive mission is also provided.
 
-**➡️ [Read the full scientific report generated by the AI for the v2.0.0 shakedown mission.](./reports/mission_20250805_123610/prometheus_final_report_20250805_123610.md)**
+**➡️ [Read the full scientific report generated by the AI for the V3.1+ EGFR Mission.](./reports/mission_20250807_185757/prometheus_final_report_20250807_185757.md)**
 
----
-
-**➡️ [Alternatively you may refer to the raw logs of this run which more details into the workflow including tools used in addition with the LLMs reasoning.](./logs/prometheus_run_20250805_123610.log)**
+**➡️ [Analyze the raw, unabridged mission log from the V3.1+ run.](./logs/prometheus_run_20250807_185757.log)**
 
 ---
 
-## System Architecture
+## System Architecture (V3.1+)
 
-Prometheus is orchestrated by a central mission script that coordinates seven specialised agents:
+Project Prometheus uses a hierarchical, multi-agent architecture orchestrated by a central mission script. This design is the result of a rapid, iterative development cycle aimed at solving the limitations of earlier versions, particularly the "potency plateau" and the risk of generative AI hallucination.
 
-1. **Knowledge Base Builder (`build_knowledge_base.py`)** – ingests PDF literature and constructs a LanceDB vector store to form the AI’s long-term memory.
-2. **Research Agent** – performs live, targeted web research with OpenAI’s `o4-mini-deep-research` model to augment the static knowledge base at the start of each discovery cycle.
-3. **Hypothesis Agent** – synthesises all available knowledge with Google’s **Gemini 2.5 Pro** to generate batches of novel, testable molecular hypotheses.
-4. **Experimenter Agent** – executes high-throughput *in silico* screening, performing molecular docking simulations with **smina** and **Open Babel**.
-5. **Scoring Agent** – calculates QED & SA scores and computes the final multi-objective Composite Score for every candidate.
-6. **MD Validator Agent** – runs GPU-accelerated Molecular Dynamics simulations with **OpenMM** to confirm the stability of the best ligand–protein complexes.
-7. **Report Synthesiser Agent** – collates all findings into a peer-review-ready scientific report in Markdown.
+The diagram below provides a high-level overview of the workflow for a single discovery cycle.
 
-This workflow grounds large-language-model creativity in empirical, physics-based simulation data at every stage, dramatically accelerating discovery while minimising hallucination.
+![Prometheus V3.1+ Workflow](assets/prometheus_workflow.png)
+
+The core components of this loop are:
+
+1.  **"Principal Investigator" (GPT-5):** A high-level strategic consultant that analyzes the full experiment history and proposes novel, state-of-the-art chemical strategies and valid starting scaffolds.
+2.  **"Postdoc" (Gemini 2.5 Pro):** A hypothesis generator that uses its massive context window to synthesize the PI's advice with the literature knowledge base, decorating the provided scaffolds to create concrete, testable molecules. An iterative feedback loop allows it to self-correct chemically invalid proposals.
+3.  **Experimenter Agent:** Executes high-throughput *in silico* screening, performing molecular docking with **Smina** and **Open Babel**.
+4.  **Scoring Agent:** A multi-faceted evaluation engine that calculates the inputs for the composite score.
+5.  **MD Validator Agent:** Runs GPU-accelerated Molecular Dynamics simulations with **OpenMM** on the most promising champion candidates to validate binding-pose stability.
+6.  **Report Synthesizer Agent:** An agentic, section-by-section workflow that uses **GPT-5** to write a final, publication-ready scientific report.
+
+This hierarchical workflow grounds the creativity of large language models in the empirical reality of physics-based simulation at every stage, creating a robust, self-correcting discovery engine.
+
+### The Prometheus Scoring Engine
+
+The AI's decision-making is guided by a transparent, multi-objective composite score defined in the `config.toml` file. This score allows the system to balance the competing demands of potency, interaction quality, and drug-like properties. For the EGFR mission, the formula was:
+
+`Score = (-1.0 * Affinity) + (5.0 * QED) + (-1.0 * SA Score) + (10.0 * IFP Score)`
+
+*   **Binding Affinity:** The raw docking score from Smina (kcal mol⁻¹). The negative weight rewards stronger (more negative) binding.
+*   **Drug-Likeness (QED):** A score from 0-1 calculated by RDKit. The high positive weight encourages molecules with favorable physicochemical properties.
+*   **Synthetic Accessibility (SA Score):** A heuristic score from RDKit where lower is better. The negative weight rewards molecules that are predicted to be easier to synthesize.
+*   **Interaction Fingerprint (IFP Score):** A custom score that rewards the formation of specific, high-quality chemical bonds with key residues in the protein's binding pocket, as calculated by ProLIF.
+
+## License and Acceptable Use
+
+Project Prometheus is a powerful tool designed for beneficial scientific discovery. It is licensed and distributed under a framework designed to encourage responsible research while preventing misuse.
+
+### License
+
+Project Prometheus is licensed under the **PolyForm-Noncommercial-1.0.0 License** (see `LICENSE` file for full details).
+
+**In simple terms:**
+
+* You **are free** to view, download, modify, and distribute this software for any **non-commercial purpose** (e.g., personal experimentation, academic research).
+* You **are not permitted** to use this software for any **commercial purpose** without a separate, written commercial license. Please contact the author for commercial licensing inquiries.
+
+### Acceptable Use & Use-Based Restrictions
+
+By using this software, you agree that you will **not** use it, or any output it generates, for any of the following purposes:
+
+* The design, development, or production of any chemical, biological, or nuclear weapons.
+* Any military application.
+* Activities that violate local or international laws or regulations.
+
+Furthermore, users should be aware that this platform operates using third-party Large Language Models (LLMs) via API keys that you must provide. These upstream providers, such as Google and OpenAI, have their own robust safety policies and filters. Attempts to misuse this framework for malicious purposes will likely violate their Terms of Service and may be blocked or flagged by their internal safety mechanisms.
 
 ---
 
 ## Setup & Execution Guide
 
-### 1. Prerequisites
+### 1. Hardware Recommendations
+
+While Prometheus can run on modern multi-core CPUs, the performance of the various simulation and AI components is hardware-dependent.
+
+* **CPU:** A modern multi-core processor (e.g., Apple Silicon M-series, Intel i7/i9, AMD Ryzen 7/9) is recommended for a smooth experience.
+* **GPU:** The Molecular Dynamics (MD) validation step is computationally intensive. A GPU is **highly recommended** to complete this step in a reasonable timeframe. The system is confirmed to leverage Apple Silicon GPUs via Metal.
+* **Development Environment:** The V3.1+ platform was successfully developed and tested on a **MacBook Pro with an M3 Pro chip.**
+
+### 2. Prerequisites
 
 * macOS or Linux
 * Git
 * [Miniforge](https://github.com/conda-forge/miniforge) (for `mamba`)
 
-### 2. Environment Setup with Mamba
+### 3. Environment Setup with Mamba
 
 Create and activate the environment with all heavy scientific dependencies:
 
@@ -73,11 +124,7 @@ mamba activate prometheus
 
 Your prompt will now begin with `(prometheus)`.
 
-#### Optional: GPU Acceleration on Apple Silicon
-
-For a dramatic speed-up in the MD validation step, follow the instructions in `docs/METAL_PLUGIN_SETUP.md` to compile and install the OpenMM-Metal plugin.
-
-### 3. Project Configuration
+### 4. Project Configuration
 
 ```bash
 # Clone the repository
@@ -95,7 +142,12 @@ GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
 OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 ```
 
-### 4. Build the Knowledge Base
+**A Note on API Costs:** A full mission run involves multiple calls to powerful large language models (GPT-5 and Gemini 2.5 Pro) and will incur API costs. A typical 5-cycle mission may cost a few dollars, but this can vary based on model usage and the complexity of the run. Please refer to the official pricing pages for the most up-to-date information.
+
+* [OpenAI API Pricing](https://openai.com/pricing)
+* [Google Gemini API Pricing](https://ai.google.dev/pricing)
+
+### 5. Build the Knowledge Base
 
 Place your PDF literature into `data/literature/` and run:
 
@@ -103,13 +155,15 @@ Place your PDF literature into `data/literature/` and run:
 python scripts/build_knowledge_base.py
 ```
 
-### 5. Run an Autonomous Mission
+### 6. Run an Autonomous Mission
 
 ```bash
 python scripts/run.py
 ```
 
-By default the configuration runs a quick, low-cost MD validation. For a full-precision run edit `config.toml` and set `quick_test = false` in the `[md_simulation]` section. All outputs – including the final Markdown report, 2-D images and CSV data – are written to a timestamped directory in `reports/`.
+> **Timeline & Cost Expectation:** The benchmark 5-cycle EGFR mission completed in approximately 35 minutes on a MacBook Pro (M3 Pro) with a Tier 1 OpenAI API key. A full run will incur API costs that may vary. Please refer to the official OpenAI and Google Gemini pricing pages for the latest information.
+
+All outputs are written to a timestamped directory in `reports/`. For a full-precision run, edit `config.toml` and set `quick_test = false`.
 
 ---
 
@@ -126,5 +180,12 @@ Prometheus stands on the shoulders of giants. The AI's reasoning is guided by a 
 ### Data Sources
 
 * **Protein Structure:** Epidermal Growth Factor Receptor (EGFR) kinase domain coordinates obtained from the RCSB Protein Data Bank.  
-  * **PDB ID:** 1M17  
-  * Stamos, J., Sliwkowski, M. X., & Eigenbrot, C. (2002). *Structure of the EGFR kinase domain alone and in complex with a 4-anilinoquinazoline inhibitor*. **JBC**, 277(48), 46265-46272. https://doi.org/10.1074/jbc.M207135200
+---
+
+## Project Evolution: From V2.0 to V3.1+
+
+The V3.1+ architecture represents a quantum leap in capability over the legacy V2.0 platform, which was released under the MIT license. The previous version, while successful, was based on a simpler architecture that lacked the sophisticated strategic reasoning and self-correction mechanisms of the current system.
+
+To fully appreciate the scale of the improvement, we have archived the key artifacts from the final V2.0 mission. We invite you to compare the final AI-generated reports from both versions to see the evolution of the platform's scientific reasoning and communication abilities.
+
+**➡️ [Explore the V2.0 Legacy Archive](./archive/v2.0/README.md)**

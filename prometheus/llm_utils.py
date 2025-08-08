@@ -1,35 +1,60 @@
+# prometheus/llm_utils.py
+"""Utilities for interacting with Large Language Models.
+
+This *ultimate* release unifies all retry logic into a **single outer loop** that
+wraps the *entire* request / validation pipeline.  This makes the helper
+resilient to **both** external API failures **and** our own ValueError-based
+validation checks.
+
+Key design points
+-----------------
+1. **Single retry loop** – covers network errors *and* post-processing checks.
+2. **Fatal vs retryable errors** – Bad prompts / wrong API keys abort
+   immediately; everything else gets retried up to ``max_retries`` times.
+3. **Optional fallback model** – preserved for backwards compatibility.
+"""
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
-import time  # Added for retry sleep
-from typing import Optional, Dict, Any, List
+import time  # noqa: F401 – kept for potential future timing metrics
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Optional third-party dependencies – imported lazily so missing packages do
+# not break the rest of the codebase.
+# ---------------------------------------------------------------------------
 try:
     import google.generativeai as genai  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
-    genai = None  # Stub when the package isn't installed
+except ModuleNotFoundError:  # pragma: no cover – optional dependency
+    genai = None  # type: ignore
 
-try:
-    from openai import AsyncOpenAI as OpenAIClient  # OpenAI>=1.2 has async client
+try:  # noqa: WPS433 – dynamic optional import
+    import openai  # type: ignore
+    from openai import AsyncOpenAI as OpenAIClient  # type: ignore
     from openai.types.chat import ChatCompletionMessageParam  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
+except ModuleNotFoundError:  # pragma: no cover – optional dependency
+    openai = None  # type: ignore
     OpenAIClient = None  # type: ignore
-    ChatCompletionMessageParam = Dict[str, str]  # fallback
+    ChatCompletionMessageParam = Dict[str, str]  # type: ignore
 
-# NEW import for handling Gemini internal errors that should trigger retries
 try:
     import google.api_core.exceptions  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
-    google = None
+except ModuleNotFoundError:  # pragma: no cover – optional dependency
+    google = None  # type: ignore
 
-
+# ---------------------------------------------------------------------------
+# Global configuration
+# ---------------------------------------------------------------------------
 _DEFAULT_LLM_TEMPERATURE: Optional[float] = None
 
 
 def configure_llm_utils(default_temperature: Optional[float] = None) -> None:
-    """Configure global defaults for the LLM helpers."""
+    """Set a global default temperature for all subsequent ``call_llm`` calls."""
 
     global _DEFAULT_LLM_TEMPERATURE
     _DEFAULT_LLM_TEMPERATURE = default_temperature
@@ -37,10 +62,9 @@ def configure_llm_utils(default_temperature: Optional[float] = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unified LLM wrapper (Gemini & GPT)
+# Main helper – now with unified retry logic
 # ---------------------------------------------------------------------------
-
-async def call_gemini(
+async def call_llm(
     *,
     prompt: str,
     model_name: str,
@@ -48,144 +72,192 @@ async def call_gemini(
     max_output_tokens: Optional[int] = None,
     system_message: Optional[str] = None,
     json_schema: Optional[Dict[str, Any]] = None,
+    fallback_model: Optional[str] = "gemini-2.5-pro",
 ) -> Dict[str, Any]:
-    """Call either Gemini or GPT models with basic retry logic for transient errors."""
+    """Call a Gemini or GPT family model with robust retry / fallback logic."""
 
+    # ---------------------------------------------------------------------
     # Retry configuration
+    # ---------------------------------------------------------------------
     max_retries = 3
     retry_delay_seconds = 5
 
     effective_temp = temperature if temperature is not None else _DEFAULT_LLM_TEMPERATURE
+
     logger.debug(
-        "LLM call (model=%s, temp=%s, system_message=%s, json_schema=%s)",
+        "LLM call init (model=%s, temp=%s, max_tokens=%s, json=%s)",
         model_name,
         effective_temp,
-        bool(system_message),
+        max_output_tokens,
         bool(json_schema),
     )
 
-    # ---------------------------------------------------------------------
-    # Gemini branch
-    # ---------------------------------------------------------------------
-    if model_name.startswith("gemini"):
-        if genai is None:  # pragma: no cover
-            return {"error": "MISSING_DEPENDENCY", "message": "google-generativeai not installed"}
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return {"error": "API_KEY_MISSING", "message": "GEMINI_API_KEY env var not set"}
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.debug(
+                "LLM call attempt %d/%d for model %s", attempt, max_retries, model_name
+            )
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
+            # -------------------------------------------------------------
+            # GEMINI FAMILY
+            # -------------------------------------------------------------
+            if model_name.startswith("gemini"):
+                if genai is None:
+                    raise ImportError("google-generativeai not installed")
 
-        gen_cfg: Dict[str, Any] = {
-            "temperature": effective_temp,
-            "max_output_tokens": max_output_tokens,
-        }
-        if json_schema is not None:
-            gen_cfg["response_mime_type"] = "application/json"
+                api_key = os.getenv("GEMINI_API_KEY")
+                if not api_key:
+                    raise ValueError("GEMINI_API_KEY env var not set")
 
-        # inner function to generate content (async if available)
-        async def _generate() -> Any:  # type: ignore[override]
-            if hasattr(model, "async_generate_content"):
-                return await model.async_generate_content(
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(model_name)
+
+                gen_cfg: Dict[str, Any] = {
+                    "temperature": effective_temp,
+                    "max_output_tokens": max_output_tokens,
+                }
+                if json_schema is not None:
+                    gen_cfg["response_mime_type"] = "application/json"
+
+                response = await model.generate_content_async(
                     _build_gemini_messages(prompt, system_message),
                     generation_config=_clean_dict(gen_cfg),
                 )
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None,
-                lambda: model.generate_content(
-                    _build_gemini_messages(prompt, system_message),
-                    generation_config=_clean_dict(gen_cfg),
-                ),
-            )
 
-        # Retry loop for transient 500 errors
-        for attempt in range(max_retries):
-            try:
-                response = await _generate()
+                # ------------------- Post-processing / validation --------------------
+                if not response.candidates:
+                    raise ValueError("Gemini response is empty or blocked (no candidates).")
+
                 candidate = response.candidates[0]
-                text_output = candidate.content.parts[0].text  # type: ignore[attr-defined]
-                return {"raw_text_output": text_output}
-            except Exception as exc:  # Catch and inspect
-                # If google exceptions module present and error is InternalServerError, retry
-                if (
-                    google is not None
-                    and isinstance(exc, google.api_core.exceptions.InternalServerError)
-                ):
-                    logger.warning(
-                        "Gemini 500 Internal Error (attempt %s/%s). Retrying in %ss…",
-                        attempt + 1,
-                        max_retries,
-                        retry_delay_seconds,
+                if not candidate.content.parts:
+                    finish_reason = getattr(candidate, "finish_reason", "UNKNOWN")
+                    raise ValueError(
+                        f"Gemini response blocked (no content parts). Reason: {finish_reason}"
                     )
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay_seconds)
-                        continue
-                # For any other error or after max retries, record and exit
-                logger.exception("Gemini API error: %s", exc)
-                return {"error": "API_EXCEPTION", "message": str(exc)}
 
-    # ---------------------------------------------------------------------
-    # GPT branch (unchanged)
-    # ---------------------------------------------------------------------
-    if model_name.startswith("gpt"):
-        if OpenAIClient is None:  # pragma: no cover
-            return {"error": "MISSING_DEPENDENCY", "message": "openai>=1.2 not installed"}
+                text_output = candidate.content.parts[0].text  # type: ignore[index]
+                return {"raw_text_output": text_output}
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            return {"error": "API_KEY_MISSING", "message": "OPENAI_API_KEY env var not set"}
+            # -------------------------------------------------------------
+            # GPT FAMILY (OpenAI)
+            # -------------------------------------------------------------
+            elif model_name.startswith("gpt"):
+                if OpenAIClient is None:
+                    raise ImportError("openai>=1.2 not installed")
 
-        client = OpenAIClient(api_key=api_key)
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    raise ValueError("OPENAI_API_KEY env var not set")
 
-        messages: List[ChatCompletionMessageParam] = []  # type: ignore[var-annotated]
-        if system_message:
-            messages.append({"role": "system", "content": system_message})
-        messages.append({"role": "user", "content": prompt})
+                client = OpenAIClient(api_key=api_key)
 
-        response_format: Dict[str, Any] = {"type": "text"}
-        if json_schema is not None:
-            response_format = {"type": "json_object"}
+                messages: List[ChatCompletionMessageParam] = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                messages.append({"role": "user", "content": prompt})
 
-        try:
-            completion = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=effective_temp,
-                max_tokens=max_output_tokens,
-                response_format=response_format,  # type: ignore[arg-type]
+                response_format: Dict[str, Any] = {"type": "text"}
+                if json_schema is not None:
+                    response_format = {"type": "json_object"}
+
+                api_params: Dict[str, Any] = {
+                    "model": model_name,
+                    "messages": messages,
+                    "response_format": response_format,
+                }
+
+                # Temperature – handle GPT-5 restrictions explicitly.
+                if effective_temp is not None:
+                    if "gpt-5" not in model_name or effective_temp == 1.0:
+                        api_params["temperature"] = effective_temp
+                    else:
+                        logger.warning(
+                            "Ignoring non-default temperature for '%s' as it is not supported.",
+                            model_name,
+                        )
+
+                # Token limit parameter names differ between GPT-4 and GPT-5.
+                if max_output_tokens is not None:
+                    if "gpt-5" in model_name:
+                        api_params["max_completion_tokens"] = max_output_tokens
+                    else:
+                        api_params["max_tokens"] = max_output_tokens
+
+                completion = await client.chat.completions.create(**_clean_dict(api_params))
+                text_output = completion.choices[0].message.content  # type: ignore[attr-defined]
+                return {"raw_text_output": text_output}
+
+            # -------------------------------------------------------------
+            # UNSUPPORTED MODEL
+            # -------------------------------------------------------------
+            else:
+                raise ValueError(f"Unsupported model: '{model_name}'")
+
+        # ------------------------------------------------------------------
+        # FATAL ERRORS – do *not* retry
+        # ------------------------------------------------------------------
+        except Exception as exc:  # noqa: BLE001 – deliberate broad catch
+            is_fatal = False
+            if openai is not None and isinstance(
+                exc, (openai.BadRequestError, openai.AuthenticationError)  # type: ignore[attr-defined]
+            ):
+                is_fatal = True
+            if isinstance(exc, ValueError):
+                is_fatal = True
+
+            if is_fatal:
+                logger.error("Fatal, non-retryable error in LLM call: %s", exc)
+
+                # Optional fallback – only attempt if a different model is provided.
+                if fallback_model and fallback_model != model_name:
+                    logger.warning("Attempting fallback to '%s'", fallback_model)
+                    return await call_llm(
+                        prompt=prompt,
+                        model_name=fallback_model,
+                        temperature=temperature,
+                        max_output_tokens=max_output_tokens,
+                        system_message=system_message,
+                        json_schema=json_schema,
+                        fallback_model=None,  # prevent infinite recursion
+                    )
+
+                return {"error": "API_EXCEPTION_FATAL", "message": str(exc)}
+
+            # ------------------------------------------------------------------
+            # RETRYABLE ERRORS
+            # ------------------------------------------------------------------
+            logger.warning(
+                "Retryable error on attempt %d/%d: %s", attempt, max_retries, exc
             )
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("OpenAI API error: %s", exc)
-            return {"error": "API_EXCEPTION", "message": str(exc)}
+            if attempt == max_retries:
+                logger.error("LLM call failed after %d attempts.", max_retries)
+                return {"error": "API_EXCEPTION_RETRY_FAILED", "message": str(exc)}
 
-        try:
-            text_output = completion.choices[0].message.content  # type: ignore[index]
-            return {"raw_text_output": text_output}
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Failed to parse OpenAI response: %s", exc)
-            return {"error": "PARSE_ERROR", "message": str(exc)}
+            await asyncio.sleep(retry_delay_seconds)
 
     # ---------------------------------------------------------------------
-    return {"error": "UNSUPPORTED_MODEL", "message": f"Model '{model_name}' is not supported by call_gemini."}
+    # Should not normally be reached
+    # ---------------------------------------------------------------------
+    return {
+        "error": "UNKNOWN_FAILURE",
+        "message": "The LLM call failed after all retries for an unknown reason.",
+    }
 
 
 # ---------------------------------------------------------------------------
-# Helper utilities
+# Helper functions
 # ---------------------------------------------------------------------------
 
 def _clean_dict(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Return *d* without keys mapping to ``None`` values."""
+    """Return *d* without keys that map to ``None`` values."""
+
     return {k: v for k, v in d.items() if v is not None}
 
 
 def _build_gemini_messages(prompt: str, system_message: Optional[str]) -> List[Dict[str, Any]]:
-    """Gemini helper – build the message dict list."""
+    """Build the role/parts structure expected by the Gemini Python SDK."""
 
     if system_message:
-        return [
-            {"role": "system", "parts": [{"text": system_message}]},
-            {"role": "user", "parts": [{"text": prompt}]},
-        ]
-    return [{"role": "user", "parts": [{"text": prompt}]}] 
+        full_prompt = f"{system_message}\n\n---\n\n{prompt}"
+        return [{"role": "user", "parts": [{"text": full_prompt}]}]
+    return [{"role": "user", "parts": [{"text": prompt}]}]

@@ -11,3 +11,6 @@ numpy
 openai
 dotenv
 sentence-transformers
+pypdf
+tqdm
+prolif

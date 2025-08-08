@@ -59,3 +59,12 @@ class ExperimentLog(BaseModel):
     image_path: Optional[str] = None
 
     verdict: str
+
+
+class HypothesisCandidate(BaseModel):
+    reasoning: str
+    new_smiles: str
+
+
+class HypothesisBatch(BaseModel):
+    candidates: List[HypothesisCandidate]

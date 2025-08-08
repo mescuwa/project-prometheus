@@ -1,21 +1,48 @@
-MIT License
-
 Copyright (c) 2025 Lumina Mescuwa
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+--------------------------------------------------------------------------------
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+PolyForm Noncommercial License 1.0.0
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+https://polyformproject.org/licenses/noncommercial/1.0.0
+
+## Acceptance
+
+In order to receive this license, you must agree to its rules. The rules of this license are both obligations you must follow and conditions to your license. You must not do anything with this software that triggers a rule that you cannot or will not follow.
+
+## Copyright
+
+The licensor grants you a copyright license for the software. You may use, copy, modify, and distribute the software for any Noncommercial Purpose.
+
+## Noncommercial Purpose
+
+A “Noncommercial Purpose” is a purpose that is not a Commercial Purpose. A “Commercial Purpose” is a purpose primarily intended for or directed towards commercial advantage or monetary compensation.
+
+## Attribution
+
+You must preserve all copyright and license notices in the software.
+
+## No Patent License
+
+The licensor does not grant you any patent license.
+
+## Disclaimer
+
+**The software is provided “as is”, without any warranty, express or implied. The licensor will not be liable to you for any damages arising from your use of the software.**
+
+## Violation
+
+If you use the software for a Commercial Purpose, your license ends immediately.
+
+## No Sublicensing
+
+You may not allow others to use this software under this license. You may not sublicense the software.
+
+## Public Network Use
+
+If you run the software on a computer that allows public network access to the software, you must put this license and the notice below in a location where users can easily find them.
+
+> Copyright (c) 2025 Lumina Mescuwa
+>
+> This software is licensed under the PolyForm Noncommercial License 1.0.0.
+> You may not use this software for a Commercial Purpose. 

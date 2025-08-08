@@ -4,8 +4,7 @@ from .hypothesis_agent import HypothesisAgent
 from .experimenter_agent import ExperimenterAgent
 from .validator_agent import ValidatorAgent
 from .scoring_agent import ScoringAgent
-from .md_validator_agent import MDValidatorAgent
-from .research_agent import ResearchAgent
+from .md_validator_agent import MDValidatorAgent 
 from .report_synthesizer_agent import ReportSynthesizerAgent
 
 __all__ = [
@@ -14,6 +13,5 @@ __all__ = [
     "ValidatorAgent",
     "ScoringAgent",
     "MDValidatorAgent",
-    "ResearchAgent",
     "ReportSynthesizerAgent",
 ] 

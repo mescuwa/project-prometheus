@@ -1,16 +1,15 @@
+# config.toml for EGFR C481S Mission
+
 [vina_tool]
-# We are now using Smina, a Vina fork with improved features. Assuming it's on PATH.
 executable_path = "smina"
-# Number of times to run docking for each molecule to get an average score.
 docking_runs = 3
-# Faster rough screen for initial filtering
 screening_docking_runs = 1
 
 [knowledge_base]
 literature_dir = "data/literature"
 db_path = "data/knowledge_base.lancedb"
-table_name = "erlotinib_research"
-embedding_model_name = "all-MiniLM-L6-v2"  # A fast, effective model
+table_name = "egfr_research" # New table name
+embedding_model_name = "all-MiniLM-L6-v2"
 
 [mission_parameters]
 pdb_id = "1M17"
@@ -18,7 +17,19 @@ protein_file = "data/pdb/1M17.pdb"
 ligand_name = "Erlotinib"
 ligand_smiles = "COCCOc1cc2c(cc1OCCOC)ncnc2Nc1cccc(c1)C#C"
 
+# Define key interactions for EGFR. These are CRITICAL for the IFP score.
+# MET769 is the famous "hinge" residue in EGFR. Binding to it is essential.
+# LEU768 and LEU820 form part of the hydrophobic pocket.
+# Note: These are expert examples; refine them based on your literature analysis.
+key_interactions = [
+    "HBAcceptor-MET769",
+    "HBDonor-MET769",
+    "Hydrophobic-LEU768",
+    "Hydrophobic-LEU820"
+]
+
 [simulation_box]
+# These are the correct coordinates for 1M17 from your old config.
 center_x = 21.857
 center_y = 0.260
 center_z = 52.761
@@ -27,64 +38,37 @@ size_y = 20.0
 size_z = 20.0
 
 [autonomous_loop]
-# The maximum number of discovery cycles to run after the baseline.
 max_cycles = 5
-# Number of hypotheses to generate per cycle
 hypothesis_batch_size = 3
-
-# A list of all SMILES strings that have been tested.
-# This prevents the AI from testing the same molecule twice.
-# We will pre-populate it with the baseline Erlotinib.
-
 tested_smiles = [
     "COCCOc1cc2c(cc1OCCOC)ncnc2Nc1cccc(c1)C#C"
 ]
 
 [scoring]
-# Define the weights for the composite score.
-# The goal is to MAXIMIZE this score.
-# We use a negative weight for affinity and SA score because we want to MINIMIZE them.
+# Weights for the new, more intelligent composite score.
+w_affinity = -1.0
+w_qed      = 5.0
+w_sa_score = -1.0
+w_ifp      = 10.0 # Strong reward for hitting the key hinge interactions
 
-w_affinity = -1.0  # (e.g., -6.7 affinity * -1.0 = +6.7 points)
-w_qed     = 5.0   # QED is a score from 0-1. A high weight encourages "drug-likeness".
-w_sa_score = -1.0 # SA score is ~1 (easy) to 10 (hard). A negative weight penalizes difficult-to-make molecules.
+# Set a challenging but achievable initial gate. The V2 champion was -7.6.
+# Let's start by requiring at least -7.0 to be considered.
+affinity_threshold = -7.0
 
 [md_simulation]
-# --- Quick test flags ---
-# Set to true to run a very short simulation for debugging the main loop.
-# Set to false for a full, scientifically valid production run.
 quick_test = true
-quick_test_steps = 10000 # A few hundred steps is enough to see if it starts
-
-# Molecular Dynamics (MD) validation parameters
-# 500,000 steps with 2 fs timestep ≈ 1 ns simulation
+quick_test_steps = 10000
 simulation_steps = 500000
-
-# Frequency (in steps) to write out state/trajectory information
 report_interval = 5000
-
-# Force fields
 protein_force_field = "amber14-all.xml"
 protein_water_model = "amber14/tip3pfb.xml"
 ligand_force_field  = "gaff-2.11"
 
-[research_agent]
-# This is a master "on/off" switch for this expensive feature.
-enabled = false
-
-# The model to use for deep research. Options: "o3-deep-research", "o4-mini-deep-research"
-model = "o4-mini-deep-research-2025-06-26"
-
-# The maximum number of tool calls (e.g., web searches) the agent is allowed to make.
-# This is our primary cost control mechanism.
-max_tool_calls = 15
-
-# The timeout in seconds for the API call. Deep research is slow.
-# The documentation recommends background mode, but for a synchronous call, a long timeout is needed.
-timeout = 1800
-
 [llm_models]
-# Model for generating new molecular ideas
+# The hierarchical model structure we engineered
 hypothesis_model = "gemini-2.5-pro"
-# Model for writing the final scientific paper
-report_model = "gemini-2.5-pro"
+consultant_model = "gpt-5-2025-08-07"
+report_intro_model = "gpt-5-2025-08-07"
+report_methods_model = "gpt-5-2025-08-07"
+report_discussion_model = "gpt-5-2025-08-07"
+report_conclusion_model = "gpt-5-2025-08-07"

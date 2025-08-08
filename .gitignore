@@ -1,37 +1,10 @@
-# ===================================================================
-# Secrets & Environment Variables
-# NEVER commit these files.
-# ===================================================================
-.env
-.env.*
-*.env
-
-
-# ===================================================================
-# Project-Specific Data & Generated Files
-# ===================================================================
-
-# Ignore the generated LanceDB knowledge base
-data/knowledge_base.lancedb/
-
-# Ignore the copyrighted literature PDFs
-# The .gitkeep file ensures the directory itself can be tracked if empty
-data/literature/*
-!data/literature/.gitkeep
-
-# Ignore the temporary recording file, keep the final GIF
-demo.cast
-demo2.cast
-
-
-# ===================================================================
-# Python Bytecode, Caches, and Virtual Environments
-# Standard for all Python projects
-# ===================================================================
+# --- Python ---
+# Byte-compiled / optimized / C extensions
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -45,31 +18,65 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
 .tox/
 .nox/
 .coverage
 .coverage.*
 .cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
 .pytest_cache/
+cover/
 
-
-# ===================================================================
-# OS & Editor Specific Files
-# Prevents clutter from different development environments
-# ===================================================================
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# VSCode
+# IDE files
 .vscode/
-
-# PyCharm
 .idea/
+*.swp
+*.swo
+
+# --- Environment ---
+# Virtual environment directory
+venv/
+env/
+.env
+
+# Conda environment config
+*.yml
+*.yaml
+
+# --- Project-Specific ---
+# Large data files and databases
+data/literature/*.pdf
+data/pdb/*.pdb
+data/knowledge_base.lancedb/
+
+# Generated reports and logs (these are artifacts, not source code)
+reports/
+logs/
+
+# Optional: Notebook checkpoints
+.ipynb_checkpoints
+
+# macOS specific
+.DS_Store
